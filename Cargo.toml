@@ -1,0 +1,21 @@
+[package]
+name = "edifact-types-macros"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jens Walter <jens@apimeister.com>"]
+license = "MIT OR Apache-2.0"
+keywords = ["edi","edifact"]
+repository = "https://github.com/apimeister/edifact-types-macros/"
+documentation = "https://docs.rs/edifact-types-macros/"
+description = "Macros for edifact-types."
+
+[lib]
+proc-macro = true
+name = "edifact_types_macros"
+
+[dependencies]
+heck = "0.4"
+proc-macro2 = "1.0"
+quote = "1.0"
+rustversion = "1.0"
+syn = { version = "1.0", features = ["parsing", "extra-traits"] }
