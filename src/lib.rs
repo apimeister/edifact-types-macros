@@ -1,8 +1,8 @@
 extern crate proc_macro;
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{Data, DeriveInput, PathArguments};
+use syn::{parse_macro_input, Data, DeriveInput, GenericArgument, PathArguments};
 
 #[proc_macro_derive(DisplayInnerSegment)]
 pub fn display_inner(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -120,37 +120,37 @@ fn gen_types(ast: &DeriveInput) -> Vec<TokenStream> {
     let x = &ast.data;
     let mut output = vec![];
     if let Data::Struct(s) = x {
-            let f = &s.fields;
-            for o in f {
-                let id = o.ident.clone().unwrap();
-                let t = &o.ty;
+        let f = &s.fields;
+        for o in f {
+            let id = o.ident.clone().unwrap();
+            let t = &o.ty;
             if let syn::Type::Path(p) = t {
-                        let s = &p.path.segments;
-                        let w = &s.first().unwrap().ident;
-                        let ty = w.to_string();
-                        match ty.as_str() {
-                            "Vec" => {
-                                let ts = quote! {
-                                    if self.#id.is_empty() {
-                                        str.push("".to_string());
-                                    }else{
-                                        self.#id.iter().for_each(|x| str.push(format!("{}",x)));
-                                    }
-                                };
-                                output.push(ts);
+                let s = &p.path.segments;
+                let w = &s.first().unwrap().ident;
+                let ty = w.to_string();
+                match ty.as_str() {
+                    "Vec" => {
+                        let ts = quote! {
+                            if self.#id.is_empty() {
+                                str.push("".to_string());
+                            }else{
+                                self.#id.iter().for_each(|x| str.push(format!("{}",x)));
                             }
-                            "Option" => {
-                                let ts = quote! {
-                                    str.push(self.#id.as_ref().map_or("".to_string(),|x| format!("{}",x)));
-                                };
-                                output.push(ts);
-                            }
-                            _ => {
-                                let ts = quote! {
-                                    str.push(format!("{}",self.#id));
-                                };
-                                output.push(ts);
-                            }
+                        };
+                        output.push(ts);
+                    }
+                    "Option" => {
+                        let ts = quote! {
+                            str.push(self.#id.as_ref().map_or("".to_string(),|x| format!("{}",x)));
+                        };
+                        output.push(ts);
+                    }
+                    _ => {
+                        let ts = quote! {
+                            str.push(format!("{}",self.#id));
+                        };
+                        output.push(ts);
+                    }
                 }
             }
         }
@@ -173,7 +173,7 @@ fn generate_inner_parse(ast: &DeriveInput) -> syn::Result<TokenStream> {
     Ok(quote! {
         impl #impl_generics ::core::str::FromStr for #name #ty_generics #where_clause {
             type Err = ParseError;
-        
+
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 let parts: Vec<&str> = s.split(':').collect();
                 if parts.len() > #prop_count {
@@ -195,34 +195,185 @@ fn gen_inner_props(ast: &DeriveInput) -> Vec<TokenStream> {
     let mut output = vec![];
     let mut idx: usize = 0;
     if let Data::Struct(s) = x {
-            let f = &s.fields;
-            for o in f {
-                let id = o.ident.clone().unwrap();
-                let t = &o.ty;
+        let f = &s.fields;
+        for o in f {
+            let id = o.ident.clone().unwrap();
+            let t = &o.ty;
             if let syn::Type::Path(p) = t {
-                        let s = &p.path.segments;
-                        let w = &s.first().unwrap().ident;
-                        let ty = w.to_string();
-                        match ty.as_str() {
-                            "Option" => {
-                                let chunk = quote! {
-                                    #id: parts.get(#idx).map(|x| x.to_string()),
-                                };
-                                output.push(chunk);        
-                            }
-                            _ => {
-                                let chunk = quote! {
-                                    #id: parts.get(#idx).map(|x| x.to_string()).unwrap_or_default(),
-                                };
-                                output.push(chunk);        
-                            }
-                        }
+                let s = &p.path.segments;
+                let w = &s.first().unwrap().ident;
+                let ty = w.to_string();
+                match ty.as_str() {
+                    "Option" => {
+                        let chunk = quote! {
+                            #id: parts.get(#idx).map(|x| x.to_string()),
+                        };
+                        output.push(chunk);
                     }
+                    _ => {
+                        let chunk = quote! {
+                            #id: parts.get(#idx).map(|x| x.to_string()).unwrap_or_default(),
+                        };
+                        output.push(chunk);
+                    }
+                }
+            }
             idx += 1;
         }
     }
     output
 }
+
+#[proc_macro_derive(ParseElement)]
+pub fn parse_element(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let output = generate_element_parser(&input).unwrap_or_else(|err| err.to_compile_error());
+    proc_macro::TokenStream::from(output)
+}
+
+fn generate_element_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
+    let name = &ast.ident;
+    // println!("element name: {name}");
+    let tok = parse_all(ast);
+    let res = quote! {
+        impl<'a> crate::util::Parser<&'a str, #name, nom::error::Error<&'a str>> for #name {
+            fn parse(input: &'a str) -> ::nom::IResult<&'a str, #name> {
+                let (_, vars) = crate::util::parse_colon_section(input)?;
+                let output = #name {
+                    #(#tok)*
+                };
+                Ok(("", output))
+            }
+        }
+    };
+    // will print parsed output
+    // println!("{res}");
+    Ok(res)
+}
+
+// impl<'a> Parser<&'a str, C002, nom::error::Error<&'a str>> for C002 {
+//     fn parse(input: &'a str) -> IResult<&'a str, C002> {
+//         let (_, vars) = crate::util::parse_colon_section(input)?;
+//         let output = C002 {
+//             _010: vars.first().map(|x| _1001::from_str(clean_num(x)).unwrap()),
+//             _020: vars.get(1).map(|x| _1131::from_str(clean_num(x)).unwrap()),
+//             _030: vars.get(2).map(|x| _3055::from_str(clean_num(x)).unwrap()),
+//             _040: vars.get(3).map(|x| x.to_string()),
+//         };
+//         Ok(("", output))
+//     }
+// }
+
+#[proc_macro_derive(ParseSegment)]
+pub fn parse_segment(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let output = generate_segment_parser(&input).unwrap_or_else(|err| err.to_compile_error());
+    proc_macro::TokenStream::from(output)
+}
+
+// impl<'a> Parser<&'a str, COM, nom::error::Error<&'a str>> for COM {
+//     fn parse(input: &'a str) -> IResult<&'a str, COM> {
+//         let (output_rest, vars) = crate::util::parse_line(input, "COM")?;
+//         let output = COM {
+//             _010: vars.first().map(|x| C076::parse(x).unwrap().1).unwrap(),
+//         };
+//         Ok((output_rest, output))
+//     }
+// }
+
+fn generate_segment_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
+    let name = &ast.ident;
+    // println!("segment name: {name}");
+    let tok = parse_all(ast);
+    // tok.iter().for_each(|t| println!("{t}"));
+    let s = format_ident!("{}", name).to_string().to_uppercase();
+    let res = quote! {
+        impl<'a> crate::util::Parser<&'a str, #name, nom::error::Error<&'a str>> for #name {
+            fn parse(input: &'a str) -> ::nom::IResult<&'a str, #name> {
+                let (output_rest, vars) = crate::util::parse_line(input, #s)?;
+                let output = #name {
+                    #(#tok)*
+                };
+                Ok((output_rest, output))
+            }
+        }
+    };
+    // will print parsed output
+    // println!("{res}");
+    Ok(res)
+}
+
+fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
+    let x = &ast.data;
+    let mut output = vec![];
+    if let Data::Struct(s) = x {
+        let f = &s.fields;
+        for (idx, o) in f.into_iter().enumerate() {
+            // _010, _020, etc
+            let struct_field = o.ident.clone().unwrap();
+            let syn::Type::Path(tp) = &o.ty else {
+                panic!("Path type not found!")
+            };
+            let s = tp.path.segments.first().unwrap();
+            let opt_vec = s.ident.clone();
+            match opt_vec.to_string().as_str() {
+                "Option" | "Vec" => {
+                    // List, String, Segment inside option or vec
+                    let mut inside_opt_vec: Ident = Ident::new("placeholder", Span::call_site());
+
+                    if let PathArguments::AngleBracketed(abga) = &s.arguments {
+                        if let GenericArgument::Type(syn::Type::Path(tp)) =
+                            abga.args.first().unwrap()
+                        {
+                            inside_opt_vec = tp.path.segments.first().unwrap().ident.clone();
+                        }
+                    }
+                    // In case of Option
+                    if opt_vec == "Option" {
+                        // Can be String, _XXX (List), or CXXX,SXXX (Segment)
+                        if inside_opt_vec == "String" {
+                            output.push(quote! {
+                                #struct_field: vars.get(#idx).map(|x| x.to_string()),
+                            });
+                        } else if inside_opt_vec.to_string().starts_with('_') {
+                            // List (types.rs)
+                            output.push(quote! {
+                                #struct_field: vars.get(#idx).map(|x| #inside_opt_vec::from_str(clean_num(x)).unwrap()),
+                            });
+                        } else {
+                            // Segment or Element
+                            output.push(quote! {
+                                #struct_field: vars.get(#idx).map(|x| #inside_opt_vec::parse(x).unwrap().1),
+                            });
+                        }
+                    } else if opt_vec == "Vec" {
+                        panic!("Vec not implemented yet. Add to proc macros!")
+                    }
+                    // println!("Option: {struct_field}: {opt_vec}<{inside_opt_vec}>");
+                }
+                "String" => {
+                    // println!("String: {struct_field}: {opt_vec}");
+                    output.push(quote! {
+                        #struct_field: vars.get(#idx).map(|x| x.to_string()).unwrap(),
+                    });
+                }
+                _ => {
+                    // Can be _XXX (List), or CXXX,SXXX (Segment)
+                    // println!("_: {struct_field}: {opt_vec}");
+                    if opt_vec.to_string().starts_with('_') {
+                        // List (types.rs)
+                        output.push(quote! {
+                            #struct_field: vars.get(#idx).map(|x| #opt_vec::from_str(clean_num(x)).unwrap()).unwrap(),
+                        });
+                    } else {
+                        // Segment or Element
+                        output.push(quote! {
+                            #struct_field: vars.get(#idx).map(|x| #opt_vec::parse(x).unwrap().1).unwrap(),
+                        });
+                    }
+                }
+            }
+        }
     }
     output
 }
@@ -243,7 +394,7 @@ fn generate_outer_parse(ast: &DeriveInput) -> syn::Result<TokenStream> {
     Ok(quote! {
         impl #impl_generics ::core::str::FromStr for #name #ty_generics #where_clause {
             type Err = ParseError;
-        
+
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 let x = s.trim_end_matches('\'');
                 let parts: Vec<&str> = x.split('+').collect();
@@ -272,67 +423,67 @@ fn gen_outer_props(ast: &DeriveInput) -> Vec<TokenStream> {
     let mut output = vec![];
     let mut idx: usize = 1;
     if let Data::Struct(s) = x {
-            let f = &s.fields;
-            for o in f {
-                let id = o.ident.clone().unwrap();
-                let t = &o.ty;
+        let f = &s.fields;
+        for o in f {
+            let id = o.ident.clone().unwrap();
+            let t = &o.ty;
             if let syn::Type::Path(p) = t {
-                        let s = &p.path.segments;
-                        let we = s.first().unwrap();
-                        let w = &we.ident;
-                        let arg = &we.arguments;
-                        let sub_id = &we.ident;
-                        let ty = w.to_string();
-                        match ty.as_str() {
-                            "Option" => {
-                                // look for type inside
+                let s = &p.path.segments;
+                let we = s.first().unwrap();
+                let w = &we.ident;
+                let arg = &we.arguments;
+                let sub_id = &we.ident;
+                let ty = w.to_string();
+                match ty.as_str() {
+                    "Option" => {
+                        // look for type inside
                         if let PathArguments::AngleBracketed(c) = arg {
-                                        let o = c.args.first().unwrap();
+                            let o = c.args.first().unwrap();
                             if let syn::GenericArgument::Type(syn::Type::Path(tpo)) = o {
-                                                        let sg = tpo.path.segments.first().unwrap();
-                                                        let ident = &sg.ident;
-                                                        let type_name = ident.to_string();
-                                                        match type_name.as_str() {
-                                                            "String" => {
-                                                                let chunk = quote! {
-                                                                    if let Some(val) = parts.get(#idx) {
-                                                                        obj.#id = Some(val.to_string());
-                                                                    }
-                                                                };
-                                                                output.push(chunk);   
+                                let sg = tpo.path.segments.first().unwrap();
+                                let ident = &sg.ident;
+                                let type_name = ident.to_string();
+                                match type_name.as_str() {
+                                    "String" => {
+                                        let chunk = quote! {
+                                            if let Some(val) = parts.get(#idx) {
+                                                obj.#id = Some(val.to_string());
+                                            }
+                                        };
+                                        output.push(chunk);
                                     }
-                                                            _ => {
-                                                                let chunk = quote! {
-                                                                    if let Some(val) = parts.get(#idx) {
-                                                                        let t = #ident::from_str(val).unwrap();
-                                                                        obj.#id = Some(t);
-                                                                    }
-                                                                };
-                                                                output.push(chunk);   
-                                                            }
-                                                        }
-                            }
+                                    _ => {
+                                        let chunk = quote! {
+                                            if let Some(val) = parts.get(#idx) {
+                                                let t = #ident::from_str(val).unwrap();
+                                                obj.#id = Some(t);
+                                            }
+                                        };
+                                        output.push(chunk);
+                                    }
                                 }
                             }
-                            "String" => {
-                                let chunk = quote! {
-                                    if let Some(val) = parts.get(#idx) {
-                                        obj.#id = val.to_string();
-                                    }
-                                };
-                                output.push(chunk);  
-                            }
-                            _ => {
-                                let chunk = quote! {
-                                    if let Some(val) = parts.get(#idx) {
-                                        obj.#id = #sub_id::from_str(val).unwrap();
-                                    }
-                                };
-                                output.push(chunk);        
-                            }
                         }
+                    }
+                    "String" => {
+                        let chunk = quote! {
+                            if let Some(val) = parts.get(#idx) {
+                                obj.#id = val.to_string();
+                            }
+                        };
+                        output.push(chunk);
+                    }
+                    _ => {
+                        let chunk = quote! {
+                            if let Some(val) = parts.get(#idx) {
+                                obj.#id = #sub_id::from_str(val).unwrap();
+                            }
+                        };
+                        output.push(chunk);
+                    }
                 }
-                idx += 1;
+            }
+            idx += 1;
         }
     }
     output
