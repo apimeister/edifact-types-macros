@@ -119,14 +119,12 @@ fn generate_edifact_sg(ast: &DeriveInput) -> syn::Result<TokenStream> {
 fn gen_types(ast: &DeriveInput) -> Vec<TokenStream> {
     let x = &ast.data;
     let mut output = vec![];
-    match x {
-        Data::Struct(s) => {
+    if let Data::Struct(s) = x {
             let f = &s.fields;
             for o in f {
                 let id = o.ident.clone().unwrap();
                 let t = &o.ty;
-                match t {
-                    syn::Type::Path(p) => {
+            if let syn::Type::Path(p) = t {
                         let s = &p.path.segments;
                         let w = &s.first().unwrap().ident;
                         let ty = w.to_string();
@@ -153,13 +151,9 @@ fn gen_types(ast: &DeriveInput) -> Vec<TokenStream> {
                                 };
                                 output.push(ts);
                             }
-                        }
-                    }
-                    _ => {}
                 }
             }
         }
-        _ => {}
     }
     output
 }
@@ -170,7 +164,6 @@ pub fn parse_inner(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let toks = generate_inner_parse(&ast).unwrap_or_else(|err| err.to_compile_error());
     toks.into()
 }
-
 
 fn generate_inner_parse(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let name = &ast.ident;
@@ -201,14 +194,12 @@ fn gen_inner_props(ast: &DeriveInput) -> Vec<TokenStream> {
     let x = &ast.data;
     let mut output = vec![];
     let mut idx: usize = 0;
-    match x {
-        Data::Struct(s) => {
+    if let Data::Struct(s) = x {
             let f = &s.fields;
             for o in f {
                 let id = o.ident.clone().unwrap();
                 let t = &o.ty;
-                match t {
-                    syn::Type::Path(p) => {
+            if let syn::Type::Path(p) = t {
                         let s = &p.path.segments;
                         let w = &s.first().unwrap().ident;
                         let ty = w.to_string();
@@ -227,12 +218,11 @@ fn gen_inner_props(ast: &DeriveInput) -> Vec<TokenStream> {
                             }
                         }
                     }
-                    _ => {}
-                }
-                idx += 1;
-            }
+            idx += 1;
         }
-        _ => {}
+    }
+    output
+}
     }
     output
 }
@@ -243,7 +233,6 @@ pub fn parse_outer(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let toks = generate_outer_parse(&ast).unwrap_or_else(|err| err.to_compile_error());
     toks.into()
 }
-
 
 fn generate_outer_parse(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let name = &ast.ident;
@@ -282,14 +271,12 @@ fn gen_outer_props(ast: &DeriveInput) -> Vec<TokenStream> {
     let x = &ast.data;
     let mut output = vec![];
     let mut idx: usize = 1;
-    match x {
-        Data::Struct(s) => {
+    if let Data::Struct(s) = x {
             let f = &s.fields;
             for o in f {
                 let id = o.ident.clone().unwrap();
                 let t = &o.ty;
-                match t {
-                    syn::Type::Path(p) => {
+            if let syn::Type::Path(p) = t {
                         let s = &p.path.segments;
                         let we = s.first().unwrap();
                         let w = &we.ident;
@@ -299,13 +286,9 @@ fn gen_outer_props(ast: &DeriveInput) -> Vec<TokenStream> {
                         match ty.as_str() {
                             "Option" => {
                                 // look for type inside
-                                match arg {
-                                    PathArguments::AngleBracketed(c) =>{
+                        if let PathArguments::AngleBracketed(c) = arg {
                                         let o = c.args.first().unwrap();
-                                        match o {
-                                            syn::GenericArgument::Type(po) => {
-                                                match po {
-                                                    syn::Type::Path(tpo) => {
+                            if let syn::GenericArgument::Type(syn::Type::Path(tpo)) = o {
                                                         let sg = tpo.path.segments.first().unwrap();
                                                         let ident = &sg.ident;
                                                         let type_name = ident.to_string();
@@ -317,7 +300,7 @@ fn gen_outer_props(ast: &DeriveInput) -> Vec<TokenStream> {
                                                                     }
                                                                 };
                                                                 output.push(chunk);   
-                                                            },
+                                    }
                                                             _ => {
                                                                 let chunk = quote! {
                                                                     if let Some(val) = parts.get(#idx) {
@@ -328,14 +311,7 @@ fn gen_outer_props(ast: &DeriveInput) -> Vec<TokenStream> {
                                                                 output.push(chunk);   
                                                             }
                                                         }
-                                                    },
-                                                    _ => {},
-                                                }
-                                            },
-                                            _ =>{}
-                                        }
-                                    }
-                                    _ =>{}
+                            }
                                 }
                             }
                             "String" => {
@@ -355,13 +331,9 @@ fn gen_outer_props(ast: &DeriveInput) -> Vec<TokenStream> {
                                 output.push(chunk);        
                             }
                         }
-                    }
-                    _ => {}
                 }
                 idx += 1;
-            }
         }
-        _ => {}
     }
     output
 }
