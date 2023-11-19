@@ -233,7 +233,6 @@ pub fn parse_element(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 
 fn generate_element_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let name = &ast.ident;
-    // println!("element name: {name}");
     let tok = parse_all(ast);
     let res = quote! {
         impl<'a> crate::util::Parser<&'a str, #name, nom::error::Error<&'a str>> for #name {
@@ -246,8 +245,6 @@ fn generate_element_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
             }
         }
     };
-    // will print parsed output
-    // println!("{res}");
     Ok(res)
 }
 
@@ -260,7 +257,6 @@ pub fn parse_sg(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let name = &ast.ident;
-    println!("{ast:#?}");
     let mut lefties = vec![];
     let mut attries = vec![];
     if let Data::Struct(left_vec) = &ast.data {
@@ -326,7 +322,6 @@ fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
             }
         }
     };
-    println!("{attries:?}");
     let res = quote! {
         // impl<'a> Parser<&'a str, IftminSg1, nom::error::Error<&'a str>> for IftminSg1 {
         //     fn parse(input: &'a str) -> IResult<&'a str, IftminSg1> {
@@ -337,19 +332,12 @@ fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
         // }
         impl<'a> crate::util::Parser<&'a str, #name, nom::error::Error<&'a str>> for #name {
             fn parse(input: &'a str) -> ::nom::IResult<&'a str, #name> {
-                // let (outer_rest, loc) = LOC::parse(input)?;
-                // let (outer_rest, dtm) = many0(DTM::parse)(outer_rest)?;
-                // Ok((outer_rest, IftminSg1 { loc, dtm }))
                 let outer_rest = input;
                 #(#attries)*
-                // Ok((outer_rest, IftminSg1 { loc, dtm }))
                 Ok((outer_rest, #name { #(#lefties),* }))
             }
         }
     };
-    println!("{}", res);
-    // will print parsed output
-    // println!("{res}");
     Ok(res)
 }
 
@@ -385,9 +373,7 @@ pub fn parse_segment(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 
 fn generate_segment_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let name = &ast.ident;
-    // println!("segment name: {name}");
     let tok = parse_all(ast);
-    // tok.iter().for_each(|t| println!("{t}"));
     let s = format_ident!("{}", name).to_string().to_uppercase();
     let res = quote! {
         impl<'a> crate::util::Parser<&'a str, #name, nom::error::Error<&'a str>> for #name {
@@ -400,8 +386,6 @@ fn generate_segment_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
             }
         }
     };
-    // will print parsed output
-    // println!("{res}");
     Ok(res)
 }
 
@@ -446,17 +430,14 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                                 #struct_field: vars.get(#idx).map(|x| #inside_opt_vec::parse(x).unwrap().1),
                             });
                     }
-                    // println!("Option: {struct_field}: {opt_vec}<{inside_opt_vec}>");
                 }
                 "String" => {
-                    // println!("String: {struct_field}: {opt_vec}");
                     output.push(quote! {
                         #struct_field: vars.get(#idx).map(|x| x.to_string()).unwrap(),
                     });
                 }
                 _ => {
                     // Can be _XXX (List), or CXXX,SXXX (Segment)
-                    // println!("_: {struct_field}: {opt_vec}");
                     if opt_vec.to_string().starts_with('_') {
                         // List (types.rs)
                         output.push(quote! {
