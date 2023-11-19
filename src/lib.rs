@@ -253,17 +253,26 @@ fn generate_element_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
 #[proc_macro_derive(ParseSg)]
 pub fn parse_sg(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    let output = generate_sg_parser(&input).unwrap_or_else(|err| err.to_compile_error());
+    let output = generate_sg_parser(&input, true).unwrap_or_else(|err| err.to_compile_error());
     proc_macro::TokenStream::from(output)
 }
 
-fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
+#[proc_macro_derive(ParseMsg)]
+pub fn parse_msg(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let output = generate_sg_parser(&input, false).unwrap_or_else(|err| err.to_compile_error());
+    #[cfg(feature = "debug")]
+    println!("{output}");
+    proc_macro::TokenStream::from(output)
+}
+
+fn generate_sg_parser(ast: &DeriveInput, is_sg: bool) -> syn::Result<TokenStream> {
     let name = &ast.ident;
     let mut lefties = vec![];
     let mut attries = vec![];
     if let Data::Struct(left_vec) = &ast.data {
         if let Fields::Named(f) = &left_vec.fields {
-            for ff in &f.named {
+            for (idx, ff) in (&f.named).into_iter().enumerate() {
                 let left = match &ff.ident {
                     Some(l) => l.clone(),
                     None => Ident::new("", Span::call_site()),
@@ -273,8 +282,9 @@ fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
 
                 let all = if let Type::Path(tyty) = &ff.ty {
                     let inside = &tyty.path.segments[0];
+                    let inside_str = inside.ident.to_string();
                     // First occurence, can be Option, Vec or Type
-                    match inside.ident.to_string().as_str() {
+                    match inside_str.as_str() {
                         "Vec" | "Option" => {
                             if let PathArguments::AngleBracketed(inside_optvec) = &inside.arguments
                             {
@@ -285,10 +295,18 @@ fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
                                         quote! {
                                             #left
                                         },
-                                        if inside.ident.to_string().as_str() == "Vec" {
-                                            quote! {
+                                        if inside_str == "Vec" {
+                                            // if we are in msg_type stage, or if vec is the first element of struct
+                                            // many0 will come back positive and the surroung element will not collaps
+                                            if !is_sg || idx != 0 {
+                                                quote! {
                                                 // let (outer_rest, dtm) = many0(DTM::parse)(outer_rest)?;
-                                                let (outer_rest, #left) = nom::multi::many0(#ti::parse)(outer_rest)?;
+                                                    let (outer_rest, #left) = nom::multi::many0(#ti::parse)(outer_rest)?;
+                                                }
+                                            } else {
+                                                quote! {
+                                                    let (outer_rest, #left) = nom::multi::many1(#ti::parse)(outer_rest)?;
+                                                }
                                             }
                                         } else {
                                             quote! {
