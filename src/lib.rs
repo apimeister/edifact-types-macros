@@ -228,6 +228,8 @@ fn gen_inner_props(ast: &DeriveInput) -> Vec<TokenStream> {
 pub fn parse_element(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let output = generate_element_parser(&input).unwrap_or_else(|err| err.to_compile_error());
+    #[cfg(feature = "debug")]
+    println!("{output}");
     proc_macro::TokenStream::from(output)
 }
 
@@ -338,6 +340,8 @@ fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
             }
         }
     };
+    #[cfg(feature = "debug")]
+    println!("{res}");
     Ok(res)
 }
 
@@ -358,6 +362,8 @@ fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
 pub fn parse_segment(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let output = generate_segment_parser(&input).unwrap_or_else(|err| err.to_compile_error());
+    #[cfg(feature = "debug")]
+    println!("{output}");
     proc_macro::TokenStream::from(output)
 }
 

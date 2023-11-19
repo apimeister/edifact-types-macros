@@ -13,6 +13,10 @@ description = "Macros for edifact-types."
 proc-macro = true
 name = "edifact_types_macros"
 
+[features]
+default = []
+debug = []
+
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"
