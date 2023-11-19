@@ -286,11 +286,11 @@ fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
                                         if inside.ident.to_string().as_str() == "Vec" {
                                             quote! {
                                                 // let (outer_rest, dtm) = many0(DTM::parse)(outer_rest)?;
-                                                let (outer_rest, #left) = many0(#ti::parse)(outer_rest)?;
+                                                let (outer_rest, #left) = nom::multi::many0(#ti::parse)(outer_rest)?;
                                             }
                                         } else {
                                             quote! {
-                                                let (outer_rest, #left) = opt(#ti::parse)(outer_rest)?;
+                                                let (outer_rest, #left) = nom::combinator::opt(#ti::parse)(outer_rest)?;
                                             }
                                         },
                                     )
