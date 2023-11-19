@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DeriveInput, GenericArgument, PathArguments};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, GenericArgument, PathArguments, Type};
 
 #[proc_macro_derive(DisplayInnerSegment)]
 pub fn display_inner(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -251,6 +251,108 @@ fn generate_element_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
     Ok(res)
 }
 
+#[proc_macro_derive(ParseSg)]
+pub fn parse_sg(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let output = generate_sg_parser(&input).unwrap_or_else(|err| err.to_compile_error());
+    proc_macro::TokenStream::from(output)
+}
+
+fn generate_sg_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
+    let name = &ast.ident;
+    println!("{ast:#?}");
+    let mut lefties = vec![];
+    let mut attries = vec![];
+    if let Data::Struct(left_vec) = &ast.data {
+        if let Fields::Named(f) = &left_vec.fields {
+            for ff in &f.named {
+                let left = match &ff.ident {
+                    Some(l) => l.clone(),
+                    None => Ident::new("", Span::call_site()),
+                };
+
+                // right side can be any of String, Struct, Enum, Option<..>, Vec<..>
+
+                let all = if let Type::Path(tyty) = &ff.ty {
+                    let inside = &tyty.path.segments[0];
+                    // First occurence, can be Option, Vec or Type
+                    match inside.ident.to_string().as_str() {
+                        "Vec" | "Option" => {
+                            if let PathArguments::AngleBracketed(inside_optvec) = &inside.arguments
+                            {
+                                if let GenericArgument::Type(Type::Path(t)) = &inside_optvec.args[0]
+                                {
+                                    let ti = &t.path.segments[0].ident;
+                                    (
+                                        quote! {
+                                            #left
+                                        },
+                                        if inside.ident.to_string().as_str() == "Vec" {
+                                            quote! {
+                                                // let (outer_rest, dtm) = many0(DTM::parse)(outer_rest)?;
+                                                let (outer_rest, #left) = many0(#ti::parse)(outer_rest)?;
+                                            }
+                                        } else {
+                                            quote! {
+                                                let (outer_rest, #left) = opt(#ti::parse)(outer_rest)?;
+                                            }
+                                        },
+                                    )
+                                } else {
+                                    (quote! {}, quote! {})
+                                }
+                            } else {
+                                (quote! {}, quote! {})
+                            }
+                        }
+                        _ => {
+                            let i = inside.ident.clone();
+                            (
+                                quote! {
+                                    #left
+                                },
+                                quote! {
+                                    // let (outer_rest, loc) = LOC::parse(input)?;
+                                    let (outer_rest, #left) = #i::parse(outer_rest)?;
+                                },
+                            )
+                        }
+                    }
+                } else {
+                    (quote! {}, quote! {})
+                };
+                lefties.push(all.0);
+                attries.push(all.1);
+            }
+        }
+    };
+    println!("{attries:?}");
+    let res = quote! {
+        // impl<'a> Parser<&'a str, IftminSg1, nom::error::Error<&'a str>> for IftminSg1 {
+        //     fn parse(input: &'a str) -> IResult<&'a str, IftminSg1> {
+        //         let (outer_rest, loc) = LOC::parse(input)?;
+        //         let (outer_rest, dtm) = many0(DTM::parse)(outer_rest)?;
+        //         Ok((outer_rest, IftminSg1 { loc, dtm }))
+        //     }
+        // }
+        impl<'a> crate::util::Parser<&'a str, #name, nom::error::Error<&'a str>> for #name {
+            fn parse(input: &'a str) -> ::nom::IResult<&'a str, #name> {
+                // let (outer_rest, loc) = LOC::parse(input)?;
+                // let (outer_rest, dtm) = many0(DTM::parse)(outer_rest)?;
+                // Ok((outer_rest, IftminSg1 { loc, dtm }))
+                let outer_rest = input;
+                #(#attries)*
+                // Ok((outer_rest, IftminSg1 { loc, dtm }))
+                Ok((outer_rest, #name { #(#lefties),* }))
+            }
+        }
+    };
+    println!("{}", res);
+    // will print parsed output
+    // println!("{res}");
+    Ok(res)
+}
+
 // impl<'a> Parser<&'a str, C002, nom::error::Error<&'a str>> for C002 {
 //     fn parse(input: &'a str) -> IResult<&'a str, C002> {
 //         let (_, vars) = crate::util::parse_colon_section(input)?;
@@ -328,26 +430,21 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                             inside_opt_vec = tp.path.segments.first().unwrap().ident.clone();
                         }
                     }
-                    // In case of Option
-                    if opt_vec == "Option" {
-                        // Can be String, _XXX (List), or CXXX,SXXX (Segment)
-                        if inside_opt_vec == "String" {
-                            output.push(quote! {
-                                #struct_field: vars.get(#idx).map(|x| x.to_string()),
-                            });
-                        } else if inside_opt_vec.to_string().starts_with('_') {
-                            // List (types.rs)
-                            output.push(quote! {
+                    // Can be String, _XXX (List), or CXXX,SXXX (Segment)
+                    if inside_opt_vec == "String" {
+                        output.push(quote! {
+                            #struct_field: vars.get(#idx).map(|x| x.to_string()),
+                        });
+                    } else if inside_opt_vec.to_string().starts_with('_') {
+                        // List (types.rs)
+                        output.push(quote! {
                                 #struct_field: vars.get(#idx).map(|x| #inside_opt_vec::from_str(clean_num(x)).unwrap()),
                             });
-                        } else {
-                            // Segment or Element
-                            output.push(quote! {
+                    } else {
+                        // Segment or Element
+                        output.push(quote! {
                                 #struct_field: vars.get(#idx).map(|x| #inside_opt_vec::parse(x).unwrap().1),
                             });
-                        }
-                    } else if opt_vec == "Vec" {
-                        panic!("Vec not implemented yet. Add to proc macros!")
                     }
                     // println!("Option: {struct_field}: {opt_vec}<{inside_opt_vec}>");
                 }
