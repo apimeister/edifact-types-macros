@@ -236,10 +236,15 @@ pub fn parse_element(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 fn generate_element_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let name = &ast.ident;
     let tok = parse_all(ast);
+    let s = format_ident!("{}", name).to_string().to_uppercase();
     let res = quote! {
         impl<'a> crate::util::Parser<&'a str, #name, nom::error::Error<&'a str>> for #name {
             fn parse(input: &'a str) -> ::nom::IResult<&'a str, #name> {
+                #[cfg(feature = "logging")]
+                log::debug!("Parser is inside {}", #s);
                 let (_, vars) = crate::util::parse_colon_section(input)?;
+                #[cfg(feature = "logging")]
+                log::debug!("Variables created {vars:?}");
                 let output = #name {
                     #(#tok)*
                 };
@@ -342,6 +347,7 @@ fn generate_sg_parser(ast: &DeriveInput, is_sg: bool) -> syn::Result<TokenStream
             }
         }
     };
+    let s = format_ident!("{}", name).to_string().to_uppercase();
     let res = quote! {
         // impl<'a> Parser<&'a str, IftminSg1, nom::error::Error<&'a str>> for IftminSg1 {
         //     fn parse(input: &'a str) -> IResult<&'a str, IftminSg1> {
@@ -352,6 +358,8 @@ fn generate_sg_parser(ast: &DeriveInput, is_sg: bool) -> syn::Result<TokenStream
         // }
         impl<'a> crate::util::Parser<&'a str, #name, nom::error::Error<&'a str>> for #name {
             fn parse(input: &'a str) -> ::nom::IResult<&'a str, #name> {
+                #[cfg(feature = "logging")]
+                log::debug!("Parser is inside {}", #s);
                 let outer_rest = input;
                 #(#attries)*
                 Ok((outer_rest, #name { #(#lefties),* }))
@@ -402,7 +410,13 @@ fn generate_segment_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
     let res = quote! {
         impl<'a> crate::util::Parser<&'a str, #name, nom::error::Error<&'a str>> for #name {
             fn parse(input: &'a str) -> ::nom::IResult<&'a str, #name> {
+                #[cfg(feature = "logging")]
+                log::debug!("Parser is inside {}", #s);
                 let (output_rest, vars) = crate::util::parse_line(input, #s)?;
+                #[cfg(feature = "logging")]
+                log::debug!("Variables created {vars:?}");
+                #[cfg(feature = "logging")]
+                log::debug!("Left over string {output_rest:?}");
                 let output = #name {
                     #(#tok)*
                 };
@@ -421,16 +435,17 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
         for (idx, o) in f.into_iter().enumerate() {
             // _010, _020, etc
             let struct_field = o.ident.clone().unwrap();
+            let sf_string = struct_field.to_string();
             let syn::Type::Path(tp) = &o.ty else {
                 panic!("Path type not found!")
             };
             let s = tp.path.segments.first().unwrap();
             let opt_vec = s.ident.clone();
+            let ov_string = opt_vec.to_string();
             match opt_vec.to_string().as_str() {
                 "Option" | "Vec" => {
                     // List, String, Segment inside option or vec
                     let mut inside_opt_vec: Ident = Ident::new("placeholder", Span::call_site());
-
                     if let PathArguments::AngleBracketed(abga) = &s.arguments {
                         if let GenericArgument::Type(syn::Type::Path(tp)) =
                             abga.args.first().unwrap()
@@ -438,6 +453,8 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                             inside_opt_vec = tp.path.segments.first().unwrap().ident.clone();
                         }
                     }
+                    let iov_string = inside_opt_vec.to_string();
+
                     // Can be String, _XXX (List), or CXXX,SXXX (Segment)
                     if inside_opt_vec == "String" {
                         output.push(quote! {
@@ -446,18 +463,39 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                     } else if inside_opt_vec.to_string().starts_with('_') {
                         // List (types.rs)
                         output.push(quote! {
-                                #struct_field: vars.get(#idx).map(|x| #inside_opt_vec::from_str(clean_num(x)).unwrap()),
+                                #struct_field: vars.get(#idx).filter(|&f| !f.is_empty()).map(|x| match #inside_opt_vec::from_str(clean_num(x)) {
+                                    Ok(f) => f,
+                                    Err(e) => {
+                                        #[cfg(feature = "logging")]
+                                        log::error!("Parsing optional list item {} failed. Enum {} encountered the following error: {}", #sf_string, #iov_string, e);
+                                        panic!("Parsing optional list item failed");
+                                    },
+                                }),
                             });
                     } else {
                         // Segment or Element
                         output.push(quote! {
-                                #struct_field: vars.get(#idx).map(|x| #inside_opt_vec::parse(x).unwrap().1),
+                                #struct_field: vars.get(#idx).filter(|&f| !f.is_empty()).map(|x| match #inside_opt_vec::parse(x) {
+                                    Ok((_,r)) => r,
+                                    Err(e) => {
+                                        #[cfg(feature = "logging")]
+                                        log::error!("Parsing optional segment or element {} failed. Struct {} encountered the following error: {}", #sf_string, #iov_string, e);
+                                        panic!("Parsing optional segment or element failed");
+                                    },
+                                }),
                             });
                     }
                 }
                 "String" => {
                     output.push(quote! {
-                        #struct_field: vars.get(#idx).map(|x| x.to_string()).unwrap(),
+                        #struct_field: match vars.get(#idx).filter(|&f| !f.is_empty()).map(|x| x.to_string()) {
+                            Some(f) => f,
+                            None => {
+                                #[cfg(feature = "logging")]
+                                log::error!("Parsing mandatory {}.to_string() was not found", #sf_string);
+                                panic!("Parsing mandatory to_string() failed");
+                        },
+                        },
                     });
                 }
                 _ => {
@@ -465,12 +503,26 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                     if opt_vec.to_string().starts_with('_') {
                         // List (types.rs)
                         output.push(quote! {
-                            #struct_field: vars.get(#idx).map(|x| #opt_vec::from_str(clean_num(x)).unwrap()).unwrap(),
+                            #struct_field: vars.get(#idx).filter(|&f| !f.is_empty()).map(|x|match #opt_vec::from_str(clean_num(x)){
+                                Ok(f) => f,
+                                Err(e) => {
+                                    #[cfg(feature = "logging")]
+                                    log::error!("Parsing list item {} failed. Enum {} encountered the following error: {}", #sf_string, #ov_string, e);
+                                    panic!("Parsing list item failed");
+                                },
+                            }).expect("Parsing List: not found"),
                         });
                     } else {
                         // Segment or Element
                         output.push(quote! {
-                            #struct_field: vars.get(#idx).map(|x| #opt_vec::parse(x).unwrap().1).unwrap(),
+                            #struct_field: vars.get(#idx).filter(|&f| !f.is_empty()).map(|x| match #opt_vec::parse(x) {
+                                Ok((_,r)) => r,
+                                Err(e) => {
+                                    #[cfg(feature = "logging")]
+                                    log::error!("Parsing segment or element {} failed. Struct {} encountered the following error: {}", #sf_string, #ov_string, e);
+                                    panic!("Parsing list item failed");
+                                },
+                            }).expect("Parsing Segement or Element: not found"),
                         });
                     }
                 }
