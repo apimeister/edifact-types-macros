@@ -429,7 +429,7 @@ fn generate_segment_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
 
 fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
     let x = &ast.data;
-    let name = format!("{}",&ast.ident);
+    let name = format!("{}", &ast.ident);
     let mut output = vec![];
     if let Data::Struct(s) = x {
         let f = &s.fields;
