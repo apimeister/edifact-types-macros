@@ -1,6 +1,6 @@
 [package]
 name = "edifact-types-macros"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 authors = ["Jens Walter <jens@apimeister.com>", "Alexander Kunde <alexander@apimeister.com>"]
 license = "MIT OR Apache-2.0"
