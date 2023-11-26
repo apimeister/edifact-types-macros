@@ -429,6 +429,7 @@ fn generate_segment_parser(ast: &DeriveInput) -> syn::Result<TokenStream> {
 
 fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
     let x = &ast.data;
+    let name = format!("{}",&ast.ident);
     let mut output = vec![];
     if let Data::Struct(s) = x {
         let f = &s.fields;
@@ -467,7 +468,7 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                                     Ok(f) => f,
                                     Err(e) => {
                                         #[cfg(feature = "logging")]
-                                        log::error!("Parsing optional list item {} failed. Enum {} encountered the following error: {}", #sf_string, #iov_string, e);
+                                        log::error!("Line: {input}\nFor struct {}, parsing optional list item {} failed. Enum {} encountered the following error: {}", #name, #sf_string, #iov_string, e);
                                         panic!("Parsing optional list item failed");
                                     },
                                 }),
@@ -479,7 +480,7 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                                     Ok((_,r)) => r,
                                     Err(e) => {
                                         #[cfg(feature = "logging")]
-                                        log::error!("Parsing optional segment or element {} failed. Struct {} encountered the following error: {}", #sf_string, #iov_string, e);
+                                        log::error!("Line: {input}\nFor struct {}, parsing optional segment or element {} failed. Struct {} encountered the following error: {}", #name, #sf_string, #iov_string, e);
                                         panic!("Parsing optional segment or element failed");
                                     },
                                 }),
@@ -492,7 +493,7 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                             Some(f) => f,
                             None => {
                                 #[cfg(feature = "logging")]
-                                log::error!("Parsing mandatory {}.to_string() was not found", #sf_string);
+                                log::error!("Line: {input}\nFor struct {}, parsing mandatory {}.to_string() was not found", #name, #sf_string);
                                 panic!("Parsing mandatory to_string() failed");
                         },
                         },
@@ -507,7 +508,7 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                                 Ok(f) => f,
                                 Err(e) => {
                                     #[cfg(feature = "logging")]
-                                    log::error!("Parsing list item {} failed. Enum {} encountered the following error: {}", #sf_string, #ov_string, e);
+                                    log::error!("Line: {input}\nFor struct {}, parsing list item {} failed. Enum {} encountered the following error: {}", #name, #sf_string, #ov_string, e);
                                     panic!("Parsing list item failed");
                                 },
                             }).expect("Parsing List: not found"),
@@ -519,7 +520,7 @@ fn parse_all(ast: &DeriveInput) -> Vec<TokenStream> {
                                 Ok((_,r)) => r,
                                 Err(e) => {
                                     #[cfg(feature = "logging")]
-                                    log::error!("Parsing segment or element {} failed. Struct {} encountered the following error: {}", #sf_string, #ov_string, e);
+                                    log::error!("Line: {input}\nFor struct {}, parsing segment or element {} failed. Struct {} encountered the following error: {}", #name, #sf_string, #ov_string, e);
                                     panic!("Parsing list item failed");
                                 },
                             }).expect("Parsing Segement or Element: not found"),
